@@ -26,7 +26,7 @@ namespace hdl_graph_slam {
 
 class PrefilteringNodelet : public nodelet::Nodelet {
 public:
-  typedef pcl::PointXYZI PointT;
+  typedef pcl::PointXYZ PointT;
 
   PrefilteringNodelet() {}
   virtual ~PrefilteringNodelet() {}
@@ -42,7 +42,7 @@ public:
     }
 
     points_sub = nh.subscribe("/velodyne_points", 64, &PrefilteringNodelet::cloud_callback, this);
-    points_pub = nh.advertise<sensor_msgs::PointCloud2>("/filtered_points", 32);
+    points_pub = nh.advertise<pcl::PointCloud<PointT>>("/filtered_points", 32);
     colored_pub = nh.advertise<sensor_msgs::PointCloud2>("/colored_points", 32);
   }
 
@@ -108,7 +108,7 @@ private:
     if(src_cloud->empty()) {
       return;
     }
-
+    
     src_cloud = deskewing(src_cloud);
 
     // if base_link_frame is defined, transform the input cloud to the frame
@@ -131,7 +131,7 @@ private:
     pcl::PointCloud<PointT>::ConstPtr filtered = distance_filter(src_cloud);
     filtered = downsample(filtered);
     filtered = outlier_removal(filtered);
-
+    // pcl_conversions::toPCL(src_cloud_r.header.stamp, filtered->header.stamp);
     points_pub.publish(*filtered);
   }
 

@@ -22,7 +22,7 @@ namespace hdl_graph_slam {
 struct KeyFrame {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  using PointT = pcl::PointXYZI;
+  using PointT = pcl::PointXYZ;
   using Ptr = std::shared_ptr<KeyFrame>;
 
   KeyFrame(const ros::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud);

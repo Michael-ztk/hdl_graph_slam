@@ -23,16 +23,19 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+#include <pcl/io/io.h>
 
 #include <hdl_graph_slam/ros_utils.hpp>
 #include <hdl_graph_slam/registrations.hpp>
 #include <hdl_graph_slam/ScanMatchingStatus.h>
 
+#include <deque>
+
 namespace hdl_graph_slam {
 
 class ScanMatchingOdometryNodelet : public nodelet::Nodelet {
 public:
-  typedef pcl::PointXYZI PointT;
+  typedef pcl::PointXYZ PointT;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   ScanMatchingOdometryNodelet() {}
@@ -56,6 +59,7 @@ public:
     trans_pub = nh.advertise<geometry_msgs::TransformStamped>("/scan_matching_odometry/transform", 32);
     status_pub = private_nh.advertise<ScanMatchingStatus>("/scan_matching_odometry/status", 8);
     aligned_points_pub = nh.advertise<sensor_msgs::PointCloud2>("/aligned_points", 32);
+    submap_pub = nh.advertise<sensor_msgs::PointCloud2>("/submap", 32);
   }
 
 private:
@@ -79,6 +83,12 @@ private:
     transform_thresholding = pnh.param<bool>("transform_thresholding", false);
     max_acceptable_trans = pnh.param<double>("max_acceptable_trans", 1.0);
     max_acceptable_angle = pnh.param<double>("max_acceptable_angle", 1.0);
+
+    //submap size
+    max_submaps_queue_size_ = pnh.param<double>("max_submaps_queue_size", 10.0);
+    use_submap_ = pnh.param<bool>("use_submap", false);
+    key_frames_path_ = pnh.param<std::string>("key_frames_path", "/home/dreame/catkin_ws/src/hdl_graph_slam/key_frames");
+
 
     // select a downsample method (VOXELGRID, APPROX_VOXELGRID, NONE)
     std::string downsample_method = pnh.param<std::string>("downsample_method", "VOXELGRID");
@@ -104,6 +114,9 @@ private:
     }
 
     registration = select_registration_method(pnh);
+    // registration_test = select_registration_method(pnh);
+
+    local_submaps.reset(new pcl::PointCloud<PointT>());
   }
 
   /**
@@ -118,7 +131,19 @@ private:
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
 
-    Eigen::Matrix4f pose = matching(cloud_msg->header.stamp, cloud);
+
+    Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
+    if (use_submap_)
+    {
+      // auto t1 = std::chrono::high_resolution_clock::now();
+      pose = matching_local_map(cloud_msg->header.stamp, cloud);
+      // auto t2 = std::chrono::high_resolution_clock::now();
+      // ROS_WARN("Matching time: %f ms", std::chrono::duration<double>(t2 - t1).count() * 1000);
+    }else{
+      pose = matching(cloud_msg->header.stamp, cloud);
+    }
+
+
     publish_odometry(cloud_msg->header.stamp, cloud_msg->header.frame_id, pose);
 
     // In offline estimation, point clouds until the published time will be supplied
@@ -203,6 +228,7 @@ private:
       } else {
         msf_source = "odometry";
         msf_delta = tf2isometry(transform).cast<float>();
+        ROS_WARN("msf_delta [%f %f %f %f]", msf_delta(0,3), msf_delta(1,3), msf_delta(2,3), msf_delta(3,3));
       }
     }
 
@@ -216,7 +242,7 @@ private:
       NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
       return keyframe_pose * prev_trans;
     }
-
+    
     Eigen::Matrix4f trans = registration->getFinalTransformation();
     Eigen::Matrix4f odom = keyframe_pose * trans;
 
@@ -235,6 +261,12 @@ private:
     prev_time = stamp;
     prev_trans = trans;
 
+    Eigen::Matrix4f T = prev_trans * msf_delta.matrix();
+    // ROS_WARN("T [%f %f %f %f]", T(0,3), T(1,3), T(2,3), T(3,3));
+    pcl::transformPointCloud (*filtered, *aligned, keyframe_pose * prev_trans);
+    aligned->header.frame_id = odom_frame_id;
+    aligned_points_pub.publish(*aligned);
+
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
     keyframe_broadcaster.sendTransform(keyframe_trans);
 
@@ -251,15 +283,145 @@ private:
       prev_trans.setIdentity();
     }
 
-    if (aligned_points_pub.getNumSubscribers() > 0)
-    {
-      pcl::transformPointCloud (*cloud, *aligned, odom);
-      aligned->header.frame_id=odom_frame_id;
-      aligned_points_pub.publish(*aligned);
-    }
-
     return odom;
   }
+
+Eigen::Matrix4f matching_local_map(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+    std::vector<int> indices;
+    pcl::PointCloud<PointT>::Ptr valid_cloud(new pcl::PointCloud<PointT>());
+    pcl::removeNaNFromPointCloud(*cloud, *valid_cloud, indices);
+    keyframe_stamp = stamp;
+    auto source_cloud = downsample(valid_cloud);
+
+    //debug
+    // pcl::PointCloud<PointT>::Ptr transform_filtered(new pcl::PointCloud<PointT>());
+    // pcl::transformPointCloud(*filtered, *transform_filtered, keyframe_pose);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr source(new pcl::PointCloud<pcl::PointXYZRGB>());
+    // source->points.resize(transform_filtered->points.size());
+    // for (int i; i < transform_filtered->points.size(); i++) 
+    // {
+    //   source->points[i].r = 255;
+    //   source->points[i].g = 0;
+    //   source->points[i].b = 0;
+    //   source->points[i].x = transform_filtered->points[i].x;
+    //   source->points[i].y = transform_filtered->points[i].y;
+    //   source->points[i].z = transform_filtered->points[i].z;
+    // }
+    // viewer.showCloud(source, "source");
+
+    static Eigen::Matrix4f step_pose = Eigen::Matrix4f::Identity();
+    static Eigen::Matrix4f last_pose = init_pose_;
+    static Eigen::Matrix4f predict_pose = init_pose_;
+    static Eigen::Matrix4f last_key_frame_pose = init_pose_;
+
+    //first frame
+    if (submaps.size() == 0) {
+        keyframe_pose = init_pose_;
+        update_local_map(keyframe_pose, source_cloud);
+        return Eigen::Matrix4f::Identity();
+    }
+
+    //not first frame, just matching
+    registration->setInputSource(source_cloud);
+    pcl::PointCloud<PointT>::Ptr result_cloud(new pcl::PointCloud<PointT>());
+    registration->align(*result_cloud, predict_pose);
+
+    keyframe_pose = registration->getFinalTransformation();
+
+    if(!registration->hasConverged()) {
+      NODELET_ERROR_STREAM("scan matching has not converged!!");
+      NODELET_ERROR_STREAM("ignore this frame(" << stamp << ")");
+      return predict_pose;
+    }
+
+    pcl::PointCloud<PointT>::Ptr align_source(new pcl::PointCloud<PointT>());
+    pcl::transformPointCloud(*source_cloud, *align_source, keyframe_pose);
+    // ROS_WARN("keyframe_pose [%f %f %f]", keyframe_pose(0,3), keyframe_pose(1,3), keyframe_pose(2,3));
+
+    auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
+    keyframe_broadcaster.sendTransform(keyframe_trans);
+
+    // auto odom = last_pose * keyframe_pose;
+
+    //update predict pose
+    step_pose = last_pose.inverse() * keyframe_pose;
+    if (transform_thresholding)
+    {
+      double dx = step_pose.block<3, 1>(0, 3).norm();
+      double da = std::acos(Eigen::Quaternionf(step_pose.block<3, 3>(0, 0)).w());
+
+      if(dx > max_acceptable_trans || da > max_acceptable_angle) {
+        NODELET_ERROR_STREAM("too large transform!!  " << dx << "[m] " << da << "[rad]");
+        NODELET_ERROR_STREAM("ignore this frame(" << stamp << ")");
+        //before predict_pose update wrong
+        return predict_pose;
+      }
+    }    
+    predict_pose = keyframe_pose * step_pose;
+    last_pose = keyframe_pose;
+
+    double traver_dist = fabs(last_key_frame_pose(0,3) - keyframe_pose(0,3)) + fabs(last_key_frame_pose(1,3) - keyframe_pose(1,3)) + fabs(last_key_frame_pose(2,3) - keyframe_pose(2,3));
+    double delta_angle = fabs(std::acos(Eigen::Quaternionf(last_key_frame_pose.block<3, 3>(0, 0)).w()) - std::acos(Eigen::Quaternionf(keyframe_pose.block<3, 3>(0, 0)).w()));
+    // ROS_WARN("traver_dist [%f]", traver_dist);
+    // ROS_WARN("delta_angle [%f]", delta_angle);
+
+    if (traver_dist > keyframe_delta_trans || delta_angle > keyframe_delta_angle) {
+        update_local_map(keyframe_pose, align_source);
+        last_key_frame_pose = keyframe_pose;
+        // ROS_WARN("------------------");
+        keyframe_nums++;
+        std::string file_path = key_frames_path_ + "/key_frame_" + std::to_string(keyframe_nums) + ".pcd";
+        pcl::io::savePCDFileBinary(file_path, *valid_cloud);
+    }
+
+    return keyframe_pose;
+}
+
+void update_local_map(const Eigen::Matrix4f& keyframe_pose, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+    //add submap for scan matching 2023-11-27
+    std::pair<Eigen::Matrix4f, pcl::PointCloud<PointT>::Ptr> keyframe_data;
+    keyframe_data.first = keyframe_pose;
+    keyframe_data.second.reset(new pcl::PointCloud<PointT>(*cloud));
+    submaps.push_back(keyframe_data);
+
+    if (submaps.size() > max_submaps_queue_size_)
+    {
+      submaps.pop_front();
+    }
+
+    local_submaps.reset(new pcl::PointCloud<PointT>());
+    pcl::PointCloud<PointT>::Ptr transform_key_frame(new pcl::PointCloud<PointT>());
+    for (size_t i = 0; i < submaps.size(); i++)
+    {
+
+      // pcl::transformPointCloud (*submaps[i].second, *transform_key_frame, submaps[i].first);
+      // *local_submaps += *transform_key_frame;
+      *local_submaps += *submaps[i].second;
+    }
+    
+    local_submaps->header.frame_id = odom_frame_id;
+    submap_pub.publish(local_submaps);
+
+    ROS_INFO("local_submap size %d", local_submaps->size());
+    registration->setInputTarget(local_submaps);
+    //debug
+    // pcl::PointCloud<PointT>::ConstPtr filter_local_submaps = downsample(local_submaps);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr target(new pcl::PointCloud<pcl::PointXYZRGB>());
+    // target->points.resize(local_submaps->points.size());
+    // for (int i; i < local_submaps->points.size(); i++) 
+    // {
+    //   target->points[i].r = 0;
+    //   target->points[i].g = 255;
+    //   target->points[i].b = 0;
+    //   target->points[i].x = local_submaps->points[i].x;
+    //   target->points[i].y = local_submaps->points[i].y;
+    //   target->points[i].z = local_submaps->points[i].z;
+    // }
+    // viewer.showCloud(target, "target");
+    // ROS_INFO("local_submap size %d, filter_local_submaps size %d", filter_local_submaps->size(), filter_local_submaps->size());
+    return;
+}
+
 
   /**
    * @brief publish odometry
@@ -295,7 +457,7 @@ private:
   /**
    * @brief publish scan matching status
    */
-  void publish_scan_matching_status(const ros::Time& stamp, const std::string& frame_id, pcl::PointCloud<pcl::PointXYZI>::ConstPtr aligned, const std::string& msf_source, const Eigen::Isometry3f& msf_delta) {
+  void publish_scan_matching_status(const ros::Time& stamp, const std::string& frame_id, pcl::PointCloud<pcl::PointXYZ>::ConstPtr aligned, const std::string& msf_source, const Eigen::Isometry3f& msf_delta) {
     if(!status_pub.getNumSubscribers()) {
       return;
     }
@@ -347,6 +509,7 @@ private:
   ros::Publisher trans_pub;
   ros::Publisher aligned_points_pub;
   ros::Publisher status_pub;
+  ros::Publisher submap_pub;
   tf::TransformListener tf_listener;
   tf::TransformBroadcaster odom_broadcaster;
   tf::TransformBroadcaster keyframe_broadcaster;
@@ -367,6 +530,12 @@ private:
   double max_acceptable_trans;  //
   double max_acceptable_angle;
 
+  int max_submaps_queue_size_;
+  int keyframe_nums = 0;
+  bool use_submap_;
+  std::string key_frames_path_;
+  Eigen::Matrix4f init_pose_ = Eigen::Matrix4f::Identity();
+
   // odometry calculation
   geometry_msgs::PoseWithCovarianceStampedConstPtr msf_pose;
   geometry_msgs::PoseWithCovarianceStampedConstPtr msf_pose_after_update;
@@ -376,7 +545,8 @@ private:
   Eigen::Matrix4f keyframe_pose;               // keyframe pose
   ros::Time keyframe_stamp;                    // keyframe time
   pcl::PointCloud<PointT>::ConstPtr keyframe;  // keyframe point cloud
-
+  pcl::PointCloud<PointT>::Ptr local_submaps;
+  std::deque<std::pair<Eigen::Matrix4f, pcl::PointCloud<PointT>::Ptr>> submaps;
   //
   pcl::Filter<PointT>::Ptr downsample_filter;
   pcl::Registration<PointT, PointT>::Ptr registration;

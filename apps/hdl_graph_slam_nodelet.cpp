@@ -64,7 +64,7 @@ namespace hdl_graph_slam {
 
 class HdlGraphSlamNodelet : public nodelet::Nodelet {
 public:
-  typedef pcl::PointXYZI PointT;
+  typedef pcl::PointXYZ PointT;
   typedef message_filters::sync_policies::ApproximateTime<nav_msgs::Odometry, sensor_msgs::PointCloud2> ApproxSyncPolicy;
 
   HdlGraphSlamNodelet() {}
@@ -488,7 +488,7 @@ private:
       }
 
       if(!floor_plane_node) {
-        floor_plane_node = graph_slam->add_plane_node(Eigen::Vector4d(0.0, 0.0, 1.0, 0.0));
+        floor_plane_node = graph_slam->add_plane_node(Eigen::Vector4d(0.0, 1.0, 0.0, 0.0));
         floor_plane_node->setFixed(true);
       }
 

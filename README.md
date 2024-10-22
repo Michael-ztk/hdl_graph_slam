@@ -1,20 +1,9 @@
-# New SLAM package is released
-
-A new 3D SLAM package is released: https://github.com/koide3/glim.
-
 # hdl_graph_slam
 ***hdl_graph_slam*** is an open source ROS package for real-time 6DOF SLAM using a 3D LIDAR. It is based on 3D Graph SLAM with NDT scan matching-based odometry estimation and loop detection. It also supports several graph constraints, such as GPS, IMU acceleration (gravity vector), IMU orientation (magnetic sensor), and floor plane (detected in a point cloud). We have tested this package with Velodyne (HDL32e, VLP16) and RoboSense (16 channels) sensors in indoor and outdoor environments.
 
 <img src="imgs/hdl_graph_slam.png" width="712pix" />
 
 [![Build](https://github.com/koide3/hdl_graph_slam/actions/workflows/build.yml/badge.svg)](https://github.com/koide3/hdl_graph_slam/actions/workflows/build.yml) on melodic & noetic
-
-## Third-party extensions
-
-See also the following nice works built upon hdl_graph_slam. Feel free to request to include your work in the list :)
-
-- Multi-Robot Mapping (ROS2) developed by [Andreas Serov](https://github.com/aserbremen) : [aserbremen/Multi-Robot-Graph-SLAM](https://github.com/aserbremen/Multi-Robot-Graph-SLAM)
-- [CURB-SG: Collaborative Dynamic 3D Scene Graphs](http://curb.cs.uni-freiburg.de/) developed by Elias Greve : [robot-learning-freiburg/CURB-SG](https://github.com/robot-learning-freiburg/CURB-SG)
 
 ## Nodelets
 ***hdl_graph_slam*** consists of four nodelets.

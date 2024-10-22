@@ -28,7 +28,7 @@ namespace hdl_graph_slam {
 
 class FloorDetectionNodelet : public nodelet::Nodelet {
 public:
-  typedef pcl::PointXYZI PointT;
+  typedef pcl::PointXYZ PointT;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   FloorDetectionNodelet() {}
@@ -115,8 +115,8 @@ private:
     // filtering before RANSAC (height and normal filtering)
     pcl::PointCloud<PointT>::Ptr filtered(new pcl::PointCloud<PointT>);
     pcl::transformPointCloud(*cloud, *filtered, tilt_matrix);
-    filtered = plane_clip(filtered, Eigen::Vector4f(0.0f, 0.0f, 1.0f, sensor_height + height_clip_range), false);
-    filtered = plane_clip(filtered, Eigen::Vector4f(0.0f, 0.0f, 1.0f, sensor_height - height_clip_range), true);
+    filtered = plane_clip(filtered, Eigen::Vector4f(0.0f, 1.0f, 0.0f, sensor_height + height_clip_range), false);
+    filtered = plane_clip(filtered, Eigen::Vector4f(0.0f, 1.0f, 0.0f, sensor_height - height_clip_range), true);
 
     if(use_normal_filtering) {
       filtered = normal_filtering(filtered);
@@ -149,7 +149,7 @@ private:
     }
 
     // verticality check of the detected floor's normal
-    Eigen::Vector4f reference = tilt_matrix.inverse() * Eigen::Vector4f::UnitZ();
+    Eigen::Vector4f reference = tilt_matrix.inverse() * Eigen::Vector4f::UnitY();
 
     Eigen::VectorXf coeffs;
     ransac.getModelCoefficients(coeffs);
@@ -161,7 +161,7 @@ private:
     }
 
     // make the normal upward
-    if(coeffs.head<3>().dot(Eigen::Vector3f::UnitZ()) < 0.0f) {
+    if(coeffs.head<3>().dot(Eigen::Vector3f::UnitY()) < 0.0f) {
       coeffs *= -1.0f;
     }
 
@@ -224,7 +224,7 @@ private:
     filtered->reserve(cloud->size());
 
     for(int i = 0; i < cloud->size(); i++) {
-      float dot = normals->at(i).getNormalVector3fMap().normalized().dot(Eigen::Vector3f::UnitZ());
+      float dot = normals->at(i).getNormalVector3fMap().normalized().dot(Eigen::Vector3f::UnitY());
       if(std::abs(dot) > std::cos(normal_filter_thresh * M_PI / 180.0)) {
         filtered->push_back(cloud->at(i));
       }
