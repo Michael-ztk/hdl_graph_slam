@@ -1,4 +1,6 @@
 # hdl_graph_slam
+## Add submap for scan match!(Example3)
+
 ***hdl_graph_slam*** is an open source ROS package for real-time 6DOF SLAM using a 3D LIDAR. It is based on 3D Graph SLAM with NDT scan matching-based odometry estimation and loop detection. It also supports several graph constraints, such as GPS, IMU acceleration (gravity vector), IMU orientation (magnetic sensor), and floor plane (detected in a point cloud). We have tested this package with Velodyne (HDL32e, VLP16) and RoboSense (16 channels) sensors in indoor and outdoor environments.
 
 <img src="imgs/hdl_graph_slam.png" width="712pix" />
@@ -157,7 +159,18 @@ rviz -d hdl_graph_slam.rviz
 rosbag play --clock hdl_400.bag
 ```
 
-<img src="imgs/hdl_400_points.png" height="256pix" /> <img src="imgs/hdl_400_graph.png" height="256pix" />
+## Example3 (Office)
+
+Bag file (recorded in an outdoor environment):
+- [office.bag](链接: https://pan.baidu.com/s/1ub4ThGCejGmtmp7jv8-L8w?pwd=rw63 提取码: rw63 ) (raw data, about 160MB)
+
+```bash
+roslaunch hdl_graph_slam hdl_graph_slam_nebula220.launch
+```
+
+```bash
+rosbag play --clock office.bag
+```
 
 ## Example with GPS
 Ford Campus Vision and Lidar Data Set [\[URL\]](http://robots.engin.umich.edu/SoftwareData/Ford)
